@@ -1,0 +1,82 @@
+# Concordia FreeCycle - one-command local stack:  docker compose up
+name: freecycle
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: freecycle
+      POSTGRES_PASSWORD: freecycle
+      POSTGRES_DB: freecycle
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freecycle -d freecycle"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mcp-server:
+    build:
+      context: .
+      dockerfile: mcp-server/Dockerfile
+    environment:
+      # The MCP server gets its own read-only connection to the same database.
+      DATABASE_URL: postgresql+psycopg://freecycle:freecycle@postgres:5432/freecycle
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      MATCH_SCORE_THRESHOLD: ${MATCH_SCORE_THRESHOLD:-0.6}
+      UPLOAD_DIR: /srv/uploads
+    volumes:
+      # Read-only: the MCP server only ever reads photos for vision calls.
+      - ./uploads:/srv/uploads:ro
+    ports:
+      - "8765:8765"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://freecycle:freecycle@postgres:5432/freecycle
+      JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-secret-please-change-me-now}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      AGENT_DAILY_BUDGET: ${AGENT_DAILY_BUDGET:-20}
+      AGENT_ENABLED: ${AGENT_ENABLED:-true}
+      MATCH_SCORE_THRESHOLD: ${MATCH_SCORE_THRESHOLD:-0.6}
+      MCP_TRANSPORT: http
+      MCP_SERVER_URL: http://mcp-server:8765/mcp
+      UPLOAD_DIR: /srv/uploads
+      CORS_ORIGINS: http://localhost:5173
+    volumes:
+      - ./uploads:/srv/uploads
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mcp-server:
+        condition: service_started
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000/api/v1
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
