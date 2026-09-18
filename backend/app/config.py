@@ -51,6 +51,19 @@ class Settings(BaseSettings):
     # --- CORS ---
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
+    @field_validator("upload_dir")
+    @classmethod
+    def _anchor_upload_dir(cls, value: Path) -> Path:
+        """Resolve a relative UPLOAD_DIR against the repo root, not the CWD.
+
+        uvicorn is normally started from backend/, so "./uploads" would otherwise
+        create a second uploads tree there that the static mount serves but that
+        anything running from the repo root writes past.
+        """
+        if value.is_absolute():
+            return value
+        return (Path(__file__).resolve().parents[2] / value).resolve()
+
     @field_validator("jwt_secret")
     @classmethod
     def _check_secret_length(cls, value: str) -> str:

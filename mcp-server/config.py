@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +21,14 @@ class McpSettings(BaseSettings):
     upload_dir: Path = Path("./uploads")
     max_wishlist_candidates: int = 200
     request_timeout_seconds: float = 90.0
+
+    @field_validator("upload_dir")
+    @classmethod
+    def _anchor_upload_dir(cls, value: Path) -> Path:
+        """Same CWD-independence as the API: photos live in one place only."""
+        if value.is_absolute():
+            return value
+        return (Path(__file__).resolve().parents[1] / value).resolve()
 
 
 @lru_cache
